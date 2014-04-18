@@ -1,4 +1,3 @@
-#include <Bridge.h>
 #include <Process.h>
 
 #define OK 0
@@ -45,9 +44,16 @@ void setup() {
     Serial.println(F("err. with opkg, check internet connection"));
     while (1); // block the execution
   }
+  // install the utility to format in EXT4
   exitCode = opkg.runShellCommand(F("opkg install e2fsprogs"));
   if (exitCode != OK) {
     Serial.println(F("err. installing e2fsprogs"));
+    while (1); // block the execution
+  }
+  // install the utility to format in FAT32
+  exitCode = opkg.runShellCommand(F("opkg install mkdosfs"));
+  if (exitCode != OK) {
+    Serial.println(F("err. installing mkdosfs"));
     while (1); // block the execution
   }
   exitCode = opkg.runShellCommand(F("opkg install fdisk"));
@@ -65,67 +71,52 @@ void setup() {
   Process format;
 
   // unmount the SD card
-  exitCode = format.runShellCommand(F("umount /dev/sda1"));
-  if (exitCode == OK) {
-    Serial.println(F("err. unable to unmout /dev/sda1"));
-    while (1); // block the execution
-  }
-
-
+  format.runShellCommand(F("umount /dev/sda?"));
+  format.runShellCommand(F("rm -rf /mnt/sda?"));
 
   // create the first partition
   dataPartitionSize = readPartitionSize();
   String firstPartition = "(echo d; echo n; echo p; echo 1; echo; echo +";
   firstPartition += dataPartitionSize;
   firstPartition += "M; echo w) | fdisk /dev/sda";
-  exitCode = format.runShellCommand(firstPartition);
+  format.runShellCommand(firstPartition);
   printProcessOutput(format);
-  if (exitCode != OK) {
-    Serial.println(F("err. during 1st partition"));
-    while (1); // block the execution
-  }
-  Serial.println(F("1st OK"));
-  delay(100);
 
-
-
+  format.runShellCommand(F("umount /dev/sda?"));
   // create the second partition
-  exitCode = format.runShellCommand(F("(echo n; echo p; echo 2; echo; echo; echo w) | fdisk /dev/sda"));
+  format.runShellCommand(F("(echo n; echo p; echo 2; echo; echo; echo w) | fdisk /dev/sda"));
+  printProcessOutput(format);
+
+  format.runShellCommand(F("umount /dev/sda?"));
+  // write in the partition table that the first is FAT32
+  format.runShellCommand(F("(echo t; echo 1; echo c; echo w) | fdisk /dev/sda"));
+
+  // unmount the SD card
+  format.runShellCommand(F("umount /dev/sda?"));
+  format.runShellCommand(F("killall hotplug2"));
+
+  // format the first partition to FAT32
+  exitCode = format.runShellCommand(F("mkfs.vfat /dev/sda1"));
   printProcessOutput(format);
   if (exitCode != OK) {
-    Serial.println(F("err. during 2nd partition"));
+    Serial.println(F("\nerr. formatting to FAT32"));
     while (1); // block the execution
   }
-  Serial.println(F("2nd OK"));
+  Serial.println(F("\nFAT32 OK"));
   delay(100);
-
-
-  format.runShellCommand(F("umount /dev/sda*"));
-
-  // format the first partition in the FAT32 format
-  exitCode = format.runShellCommand(F("(echo t; echo 1; echo c; echo w) | fdisk /dev/sda"));
-  printProcessOutput(format);
-  if (exitCode != OK) {
-    Serial.println(F("err. formatting to FAT32"));
-    while (1); // block the execution
-  }
-  Serial.println(F("FAT32 OK"));
-  delay(200);
-
-
 
   // format the second partition to Linux EXT4
-  exitCode = format.runShellCommand("mkfs.ext4 /dev/sda2");
+  exitCode = format.runShellCommand(F("mkfs.ext4 /dev/sda2"));
   printProcessOutput(format);
   if (exitCode != OK) {
-    Serial.println(F("err. formatting to EXT4"));
+    Serial.println(F("\nerr. formatting to EXT4"));
     while (1); // block the execution
   }
 
-  Serial.println(F("Partition created\n"));
+  Serial.println(F("\nPartition created\n"));
 
   // modify fstab
-  Serial.println(F("Configuring fstab file\n"));
+  Serial.println(F("\nConfiguring fstab file\n"));
 
   Process fstab;
 
@@ -142,11 +133,8 @@ void setup() {
   Serial.println(F("Now rebooting to make the changes effective"));
   Serial.flush();
 
-  Serial1.begin(lininoBaud); // open serial connection to Linino
-  delay(100);
-
   Process reboot;
-  reboot.runShellCommand(F("reboot"));
+  reboot.runShellCommandAsynchronously(F("reboot"));
 }
 
 void loop() {
