@@ -1,122 +1,221 @@
 #include <Process.h>
 
-#define OK 0
-int dataPartitionSize = 700;
-long lininoBaud = 250000;
+#define DEBUG 0
+#define SUCCESSFUL_EXIT_CODE 0
 
 void setup() {
-
-  // Initialize the serial communication
-  // and wait until the port is opened
   Serial.begin(115200);
   while (!Serial);
 
-  // Initialize the Bridge
+  Serial.print(F("This sketch will format your uSD card and use it as additional disk space for your Arduino Yun.\nPlease ensure you have ONLY your uSD card plugged in: no pen drives, hard drives or whatever.\nDo you wish to proceed (yes/no)?"));
+  expectYesBeforeProceeding();
+
+  Serial.println(F("Starting Bridge..."));
+
   Bridge.begin();
 
-  Serial.print(F("Create an overlay on SD card. \nDo you want to proceed (yes/no)? "));
-  readAnswerToProceed();
+  haltIfSDAlreadyOnOverlay();
 
-  Serial.print(F("SD card check: "));
+  haltIfSDCardIsNotPresent();
 
-  // check if the SD card is present
+  installSoftwares();
+
+  partitionAndFormatSDCard();
+
+  createArduinoFolder();
+
+  enableExtRoot();
+
+  Serial.print(F("\nWe are done! Yeah! Now unplug and replug the Arduino Yun to your computer in order to make the changes effective."));
+}
+
+void loop() {
+  // This turns the sketch into a YunSerialMonitor
+  if (Serial.available()) {
+    char c = (char)Serial.read();
+    Serial1.write(c);
+  }
+  if (Serial1.available()) {
+    char c = (char)Serial1.read();
+    Serial.write(c);
+  }
+}
+
+void halt() {
+  Serial.flush();
+  while (true);
+}
+
+void expectYesBeforeProceeding() {
+  Serial.flush();
+
+  while (!Serial.available());
+
+  String answer = Serial.readStringUntil('\n');
+
+  Serial.print(F(" "));
+  Serial.println(answer);
+  if (answer != "yes") {
+    Serial.println(F("\nGoodbye"));
+    halt();
+  }
+}
+
+int readPartitionSize() {
+  int partitionSize = 0;
+  while (!partitionSize)
+  {
+    Serial.print(F("Enter the size of the data partition in MB: "));
+    while (Serial.available() == 0);
+
+    String answer = Serial.readStringUntil('\n');
+    partitionSize = answer.toInt();
+    Serial.println(partitionSize);
+    if (!partitionSize)
+      Serial.println(F("Invalid input, retry"));
+  }
+  return partitionSize;
+}
+
+void debugProcess(Process p) {
+  #if DEBUG == 1
+  while (p.running());
+
+  while (p.available() > 0) {
+    char c = p.read();
+    Serial.print(c);
+  }
+  Serial.flush();
+  #endif
+}
+
+void haltIfSDAlreadyOnOverlay() {
+  Process grep;
+
+  grep.runShellCommand(F("mount | grep ^/dev/sda | grep 'on /overlay'"));
+  String output = grep.readString();
+  if (output != "") {
+    Serial.println(F("uSD card is already used as additional Arduino Yun disk space. Nothing to do."));
+    halt();
+  }
+}
+
+void haltIfSDCardIsNotPresent() {
   Process ls;
-  ls.begin("ls");
-  ls.addParameter("/dev/sda");
-  int exitCode = ls.run();
+  int exitCode = ls.runShellCommand("ls /mnt/sda1");
 
   if (exitCode != 0) {
-    Serial.println(F("SD not present"));
-    while (1);
+    Serial.println(F("The uSD card is not available"));
+    halt();
   }
+}
 
-  Serial.println(F("OK\n"));
+void installSoftwares() {
+  Serial.print(F("Ready to install utility softwares. Please ensure your Arduino Yun is connected to internet. Ready to proceed (yes/no)?"));
+  expectYesBeforeProceeding();
 
-  Serial.print(F("Install softwares(yes/no)? "));
-  readAnswerToProceed();
+  Serial.println(F("Updating software list..."));
 
   Process opkg;
 
   // update the packages list
-  exitCode = opkg.runShellCommand("opkg update");
+  int exitCode = opkg.runShellCommand("opkg update");
   // if the exitCode of the process is OK the package has been installed correctly
-  if (exitCode != OK) {
+  if (exitCode != SUCCESSFUL_EXIT_CODE) {
     Serial.println(F("err. with opkg, check internet connection"));
-    while (1); // block the execution
+    debugProcess(opkg);
+    halt();
   }
+  Serial.println(F("Software list updated. Installing software..."));
+
   // install the utility to format in EXT4
-  exitCode = opkg.runShellCommand(F("opkg install e2fsprogs"));
-  if (exitCode != OK) {
-    Serial.println(F("err. installing e2fsprogs"));
-    while (1); // block the execution
+  exitCode = opkg.runShellCommand(F("opkg install e2fsprogs mkdosfs fdisk"));
+  if (exitCode != SUCCESSFUL_EXIT_CODE) {
+    Serial.println(F("err. installing e2fsprogs mkdosfs fdisk"));
+    debugProcess(opkg);
+    halt();
   }
-  // install the utility to format in FAT32
-  exitCode = opkg.runShellCommand(F("opkg install mkdosfs"));
-  if (exitCode != OK) {
-    Serial.println(F("err. installing mkdosfs"));
-    while (1); // block the execution
-  }
-  exitCode = opkg.runShellCommand(F("opkg install fdisk"));
-  if (exitCode != OK) {
-    Serial.println(F("err. installing fdisk"));
-    while (1); // block the execution
-  }
+  Serial.println(F("e2fsprogs mkdosfs fdisk installed"));
+  Serial.println();
+}
 
-  Serial.println(F("OK\n"));
+void partitionAndFormatSDCard() {
+  Serial.print(F("Proceed with partitioning uSD card (yes/no)?"));
+  expectYesBeforeProceeding();
 
-  // partitioning the SD
-  Serial.print(F("proceed with SD partition (yes/no)? "));
-  readAnswerToProceed();
+  unmount();
 
   Process format;
 
-  // unmount the SD card
-  format.runShellCommand(F("umount /dev/sda?"));
-  format.runShellCommand(F("rm -rf /mnt/sda?"));
+  //clears partition table
+  format.runShellCommand("dd if=/dev/zero of=/dev/sda bs=4096 count=10");
+  debugProcess(format);
 
   // create the first partition
-  dataPartitionSize = readPartitionSize();
-  String firstPartition = "(echo d; echo n; echo p; echo 1; echo; echo +";
+  int dataPartitionSize = readPartitionSize();
+  String firstPartition = "(echo n; echo p; echo 1; echo; echo +";
   firstPartition += dataPartitionSize;
   firstPartition += "M; echo w) | fdisk /dev/sda";
   format.runShellCommand(firstPartition);
-  printProcessOutput(format);
+  debugProcess(format);
 
-  format.runShellCommand(F("umount /dev/sda?"));
+  unmount();
+
   // create the second partition
   format.runShellCommand(F("(echo n; echo p; echo 2; echo; echo; echo w) | fdisk /dev/sda"));
-  printProcessOutput(format);
+  debugProcess(format);
 
-  format.runShellCommand(F("umount /dev/sda?"));
-  // write in the partition table that the first is FAT32
+  unmount();
+
+  // specify first partition is FAT32
   format.runShellCommand(F("(echo t; echo 1; echo c; echo w) | fdisk /dev/sda"));
 
-  // unmount the SD card
-  format.runShellCommand(F("umount /dev/sda?"));
-  format.runShellCommand(F("killall hotplug2"));
+  unmount();
+
+  delay(5000);
+
+  unmount();
 
   // format the first partition to FAT32
-  exitCode = format.runShellCommand(F("mkfs.vfat /dev/sda1"));
-  printProcessOutput(format);
-  if (exitCode != OK) {
+  int exitCode = format.runShellCommand(F("mkfs.vfat /dev/sda1"));
+  debugProcess(format);
+  if (exitCode != SUCCESSFUL_EXIT_CODE) {
     Serial.println(F("\nerr. formatting to FAT32"));
-    while (1); // block the execution
+    halt();
   }
-  Serial.println(F("\nFAT32 OK"));
   delay(100);
 
   // format the second partition to Linux EXT4
   exitCode = format.runShellCommand(F("mkfs.ext4 /dev/sda2"));
-  printProcessOutput(format);
-  if (exitCode != OK) {
+  debugProcess(format);
+  if (exitCode != SUCCESSFUL_EXIT_CODE) {
     Serial.println(F("\nerr. formatting to EXT4"));
-    while (1); // block the execution
+    halt();
   }
 
-  Serial.println(F("\nPartition created\n"));
+  Serial.println(F("\nuSD card correctly partitioned"));
+}
 
-  // modify fstab
-  Serial.println(F("\nConfiguring fstab file\n"));
+void createArduinoFolder() {
+  Process folder;
+
+  folder.runShellCommand(F("mkdir -p /mnt/sda1"));
+  folder.runShellCommand(F("mount /dev/sda1 /mnt/sda1"));
+  folder.runShellCommand(F("mkdir -p /mnt/sda1/arduino/www"));
+
+  unmount();
+}
+
+void unmount() {
+  Process format;
+  format.runShellCommand(F("umount /dev/sda?"));
+  debugProcess(format);
+  format.runShellCommand(F("rm -rf /mnt/sda?"));
+  debugProcess(format);
+}
+
+void enableExtRoot() {
+  Serial.print(F("\nEnabling uSD as additional disk space... "));
 
   Process fstab;
 
@@ -126,71 +225,9 @@ void setup() {
   fstab.runShellCommand(F("uci set fstab.@mount[0].fstype=ext4"));
   fstab.runShellCommand(F("uci set fstab.@mount[0].enabled=1"));
   fstab.runShellCommand(F("uci set fstab.@mount[0].enabled_fsck=0"));
-  fstab.runShellCommand(F("uci set fstab.@mount[0].options=rw,sync,noatime"));
+  fstab.runShellCommand(F("uci set fstab.@mount[0].options=rw,sync,noatime,nodiratime"));
   fstab.runShellCommand(F("uci commit"));
 
-  // reboot
-  Serial.println(F("Now rebooting to make the changes effective"));
-  Serial.flush();
-
-  Process reboot;
-  reboot.runShellCommandAsynchronously(F("reboot"));
+  Serial.println(F("enabled"));
 }
 
-void loop() {
-  // copy from virtual serial line to uart and vice versa
-  if (Serial.available()) {           // got anything from USB-Serial?
-    char c = (char)Serial.read();     // read from USB-serial
-    Serial1.write(c);
-  }
-  if (Serial1.available()) {          // got anything from Linino?
-    char c = (char)Serial1.read();    // read from Linino
-    Serial.write(c);                  // write to USB-serial
-  }
-}
-
-
-void readAnswerToProceed()
-{
-  // wait until somethig arrive on serial port
-  while (Serial.available() == 0);
-
-  String answer = Serial.readStringUntil('\n');
-
-  Serial.println(answer);
-  if (answer != "yes")
-  {
-    Serial.println(F("\nGoodbye"));
-    while (1); // do nothing more forever
-  }
-}
-
-int readPartitionSize()
-{
-  // wait until somethig arrive on serial port
-  int i = 0;
-  while (!i)
-  {
-    Serial.print(F("Enter the size of the data partition in MB: "));
-    // wait until somethig arrive on serial port
-    while (Serial.available() == 0);
-
-    String answer = Serial.readStringUntil('\n');
-    i = answer.toInt();
-    Serial.println(i);
-    if (!i)
-      Serial.println(F("invalid input, retry"));
-  }
-  return i;
-}
-
-void printProcessOutput(Process p)
-{
-  while (p.running());
-
-  while (p.available() > 0) {
-    char c = p.read();
-    Serial.print(c);
-  }
-  Serial.flush();
-}
