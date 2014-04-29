@@ -10,7 +10,7 @@ void setup() {
   Serial.print(F("This sketch will format your uSD card and use it as additional disk space for your Arduino Yun.\nPlease ensure you have ONLY your uSD card plugged in: no pen drives, hard drives or whatever.\nDo you wish to proceed (yes/no)?"));
   expectYesBeforeProceeding();
 
-  Serial.println(F("Starting Bridge..."));
+  Serial.println(F("\nStarting Bridge..."));
 
   Bridge.begin();
 
@@ -23,6 +23,8 @@ void setup() {
   partitionAndFormatSDCard();
 
   createArduinoFolder();
+
+  copySystemFilesFromYunToSD();
 
   enableExtRoot();
 
@@ -95,7 +97,7 @@ void haltIfSDAlreadyOnOverlay() {
   grep.runShellCommand(F("mount | grep ^/dev/sda | grep 'on /overlay'"));
   String output = grep.readString();
   if (output != "") {
-    Serial.println(F("uSD card is already used as additional Arduino Yun disk space. Nothing to do."));
+    Serial.println(F("\nuSD card is already used as additional Arduino Yun disk space. Nothing to do."));
     halt();
   }
 }
@@ -105,13 +107,13 @@ void haltIfSDCardIsNotPresent() {
   int exitCode = ls.runShellCommand("ls /mnt/sda1");
 
   if (exitCode != 0) {
-    Serial.println(F("The uSD card is not available"));
+    Serial.println(F("\nThe uSD card is not available"));
     halt();
   }
 }
 
 void installSoftwares() {
-  Serial.print(F("Ready to install utility softwares. Please ensure your Arduino Yun is connected to internet. Ready to proceed (yes/no)?"));
+  Serial.print(F("\nReady to install utility softwares. Please ensure your Arduino Yun is connected to internet. Ready to proceed (yes/no)?"));
   expectYesBeforeProceeding();
 
   Serial.println(F("Updating software list..."));
@@ -126,21 +128,20 @@ void installSoftwares() {
     debugProcess(opkg);
     halt();
   }
-  Serial.println(F("Software list updated. Installing software..."));
+  Serial.println(F("Software list updated. Installing software (this will take a while)..."));
 
   // install the utility to format in EXT4
-  exitCode = opkg.runShellCommand(F("opkg install e2fsprogs mkdosfs fdisk"));
+  exitCode = opkg.runShellCommand(F("opkg install e2fsprogs mkdosfs fdisk rsync"));
   if (exitCode != SUCCESSFUL_EXIT_CODE) {
     Serial.println(F("err. installing e2fsprogs mkdosfs fdisk"));
     debugProcess(opkg);
     halt();
   }
-  Serial.println(F("e2fsprogs mkdosfs fdisk installed"));
-  Serial.println();
+  Serial.println(F("e2fsprogs mkdosfs fdisk rsync installed"));
 }
 
 void partitionAndFormatSDCard() {
-  Serial.print(F("Proceed with partitioning uSD card (yes/no)?"));
+  Serial.print(F("\nProceed with partitioning uSD card (yes/no)?"));
   expectYesBeforeProceeding();
 
   unmount();
@@ -153,6 +154,8 @@ void partitionAndFormatSDCard() {
 
   // create the first partition
   int dataPartitionSize = readPartitionSize();
+
+  Serial.println(F("Partitioning (this will take a while)..."));
   String firstPartition = "(echo n; echo p; echo 1; echo; echo +";
   firstPartition += dataPartitionSize;
   firstPartition += "M; echo w) | fdisk /dev/sda";
@@ -193,15 +196,27 @@ void partitionAndFormatSDCard() {
     halt();
   }
 
-  Serial.println(F("\nuSD card correctly partitioned"));
+  Serial.println(F("uSD card correctly partitioned"));
 }
 
 void createArduinoFolder() {
+  Serial.print(F("\nCreating 'arduino' folder structure..."));
   Process folder;
 
   folder.runShellCommand(F("mkdir -p /mnt/sda1"));
   folder.runShellCommand(F("mount /dev/sda1 /mnt/sda1"));
   folder.runShellCommand(F("mkdir -p /mnt/sda1/arduino/www"));
+
+  unmount();
+}
+
+void copySystemFilesFromYunToSD() {
+  Serial.print(F("\nCopying files from Arduino Yun flash to uSD card..."));
+  Process copy;
+
+  copy.runShellCommand(F("mkdir -p /mnt/sda2"));
+  copy.runShellCommand(F("mount /dev/sda2 /mnt/sda2"));
+  copy.runShellCommand(F("rsync -a --exclude=/mnt/ --exclude=/www/sd /overlay/ /mnt/sda2/"));
 
   unmount();
 }
