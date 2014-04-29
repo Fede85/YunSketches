@@ -7,7 +7,7 @@ void setup() {
   Serial.begin(115200);
   while (!Serial);
 
-  Serial.print(F("This sketch will format your uSD card and use it as additional disk space for your Arduino Yun.\nPlease ensure you have ONLY your uSD card plugged in: no pen drives, hard drives or whatever.\nDo you wish to proceed (yes/no)?"));
+  Serial.print(F("This sketch will format your micro SD card and use it as additional disk space for your Arduino Yun.\nPlease ensure you have ONLY your micro SD card plugged in: no pen drives, hard drives or whatever.\nDo you wish to proceed (yes/no)?"));
   expectYesBeforeProceeding();
 
   Serial.println(F("\nStarting Bridge..."));
@@ -18,7 +18,7 @@ void setup() {
 
   haltIfSDCardIsNotPresent();
 
-  installSoftwares();
+  installSoftware();
 
   partitionAndFormatSDCard();
 
@@ -28,7 +28,7 @@ void setup() {
 
   enableExtRoot();
 
-  Serial.print(F("\nWe are done! Yeah! Now unplug and replug the Arduino Yun to your computer in order to make the changes effective."));
+  Serial.print(F("\nWe are done! Yeah! Now unplug and replug the Arduino Yun to your computer in order to apply the changes."));
 }
 
 void loop() {
@@ -97,7 +97,7 @@ void haltIfSDAlreadyOnOverlay() {
   grep.runShellCommand(F("mount | grep ^/dev/sda | grep 'on /overlay'"));
   String output = grep.readString();
   if (output != "") {
-    Serial.println(F("\nuSD card is already used as additional Arduino Yun disk space. Nothing to do."));
+    Serial.println(F("\nMicro SD card is already used as additional Arduino Yun disk space. Nothing to do."));
     halt();
   }
 }
@@ -107,13 +107,13 @@ void haltIfSDCardIsNotPresent() {
   int exitCode = ls.runShellCommand("ls /mnt/sda1");
 
   if (exitCode != 0) {
-    Serial.println(F("\nThe uSD card is not available"));
+    Serial.println(F("\nThe micro SD card is not available"));
     halt();
   }
 }
 
-void installSoftwares() {
-  Serial.print(F("\nReady to install utility softwares. Please ensure your Arduino Yun is connected to internet. Ready to proceed (yes/no)?"));
+void installSoftware() {
+  Serial.print(F("\nReady to install utility software. Please ensure your Arduino Yun is connected to internet. Ready to proceed (yes/no)?"));
   expectYesBeforeProceeding();
 
   Serial.println(F("Updating software list..."));
@@ -141,7 +141,7 @@ void installSoftwares() {
 }
 
 void partitionAndFormatSDCard() {
-  Serial.print(F("\nProceed with partitioning uSD card (yes/no)?"));
+  Serial.print(F("\nProceed with partitioning micro SD card (yes/no)?"));
   expectYesBeforeProceeding();
 
   unmount();
@@ -196,7 +196,7 @@ void partitionAndFormatSDCard() {
     halt();
   }
 
-  Serial.println(F("uSD card correctly partitioned"));
+  Serial.println(F("Micro SD card correctly partitioned"));
 }
 
 void createArduinoFolder() {
@@ -211,7 +211,7 @@ void createArduinoFolder() {
 }
 
 void copySystemFilesFromYunToSD() {
-  Serial.print(F("\nCopying files from Arduino Yun flash to uSD card..."));
+  Serial.print(F("\nCopying files from Arduino Yun flash to micro SD card..."));
   Process copy;
 
   copy.runShellCommand(F("mkdir -p /mnt/sda2"));
@@ -230,7 +230,7 @@ void unmount() {
 }
 
 void enableExtRoot() {
-  Serial.print(F("\nEnabling uSD as additional disk space... "));
+  Serial.print(F("\nEnabling micro SD as additional disk space... "));
 
   Process fstab;
 
