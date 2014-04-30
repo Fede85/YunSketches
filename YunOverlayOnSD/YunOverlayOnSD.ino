@@ -28,11 +28,11 @@ void setup() {
 
   enableExtRoot();
 
-  Serial.print(F("\nWe are done! Yeah! Now unplug and replug the Arduino Yun to your computer in order to apply the changes."));
+  Serial.print(F("\nWe are done! Yeah! Now press the YUN RST button to apply the changes."));
 }
 
 void loop() {
-  // This turns the sketch into a YunSerialMonitor
+  // This turns the sketch into a YunSerialTerminal
   if (Serial.available()) {
     char c = (char)Serial.read();
     Serial1.write(c);
@@ -113,7 +113,7 @@ void haltIfSDCardIsNotPresent() {
 }
 
 void installSoftware() {
-  Serial.print(F("\nReady to install utility software. Please ensure your Arduino Yun is connected to internet. Ready to proceed (yes/no)?"));
+  Serial.print(F("\nReady to install utility software. Please ensure your Arduino Yun is connected to internet.\nReady to proceed (yes/no)?"));
   expectYesBeforeProceeding();
 
   Serial.println(F("Updating software list..."));
