@@ -1,3 +1,27 @@
+/*
+   Yún Disk Space Expander
+  
+  Requirements:
+  * micro SD card
+  * internet connection
+
+  This sketch configure the SD card to expand the disk space
+  of the Yún. Upload, open the Serial Monitor and follow
+  the interactive procedure.
+
+  Warning: your SD card will be formatted and you will lose 
+  the files it contains. Be sure you have backed it up before 
+  using it for expanding Yún’s disk space.
+ 
+  created Apr 2014 
+  by Federico Fissore & Federico Vanzati 
+
+  This code is in the public domain.
+
+  http://arduino.cc/en/Tutorial/ExtendingYunDiskSpace
+
+*/
+
 #include <Process.h>
 
 #define DEBUG 0
