@@ -144,7 +144,7 @@ void haltIfInternalFlashIsFull() {
   awk.runShellCommand(F("df / | awk '/rootfs/ {print $4}'"));
   int output = awk.parseInt();
   if (output < 1000) {
-    Serial.println(F("\nYou don't have enough space to install the utility software. You need to free at least 1MB of memory.\nFree up some space and retry!"));
+    Serial.println(F("\nYou don't have enough disk space to install the utility software. You need to free at least 1MB of Flash memory.\nRetry!"));
     halt();
   }
 }
