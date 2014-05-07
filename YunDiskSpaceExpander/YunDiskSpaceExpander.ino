@@ -39,6 +39,8 @@ void setup() {
   Bridge.begin();
 
   haltIfSDAlreadyOnOverlay();
+  
+  haltIfInternalFlashIsFull();
 
   haltIfSDCardIsNotPresent();
 
@@ -132,6 +134,17 @@ void haltIfSDCardIsNotPresent() {
 
   if (exitCode != 0) {
     Serial.println(F("\nThe micro SD card is not available"));
+    halt();
+  }
+}
+
+void haltIfInternalFlashIsFull() {
+  Process awk;
+
+  awk.runShellCommand(F("df / | awk '/rootfs/ {print $4}'"));
+  int output = awk.parseInt();
+  if (output < 1000) {
+    Serial.println(F("\nYou don't have enough space to install the utility software. You need to free at least 1MB of memory.\nFree up some space and retry!"));
     halt();
   }
 }
