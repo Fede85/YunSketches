@@ -1,6 +1,6 @@
 /*
    Yún Disk Space Expander
-  
+
   Requirements:
   * micro SD card
   * internet connection
@@ -9,12 +9,12 @@
   of the Yún. Upload, open the Serial Monitor and follow
   the interactive procedure.
 
-  Warning: your SD card will be formatted and you will lose 
-  the files it contains. Be sure you have backed it up before 
+  Warning: your SD card will be formatted and you will lose
+  the files it contains. Be sure you have backed it up before
   using it for expanding Yún’s disk space.
- 
-  created Apr 2014 
-  by Federico Fissore & Federico Vanzati 
+
+  created Apr 2014
+  by Federico Fissore & Federico Vanzati
 
   This code is in the public domain.
 
@@ -39,7 +39,7 @@ void setup() {
   Bridge.begin();
 
   haltIfSDAlreadyOnOverlay();
-  
+
   haltIfInternalFlashIsFull();
 
   haltIfSDCardIsNotPresent();
@@ -74,12 +74,20 @@ void halt() {
   while (true);
 }
 
+String readStringUntilNewLine() {
+  String s = Serial.readStringUntil('\n');
+  if (s.length() > 1 && s.charAt(s.length() - 1) == '\r') {
+    s.setCharAt(s.length() - 1, '\0');
+  }
+  return s;
+}
+
 void expectYesBeforeProceeding() {
   Serial.flush();
 
   while (!Serial.available());
 
-  String answer = Serial.readStringUntil('\n');
+  String answer = readStringUntilNewLine();
 
   Serial.print(F(" "));
   Serial.println(answer);
@@ -96,7 +104,7 @@ int readPartitionSize() {
     Serial.print(F("Enter the size of the data partition in MB: "));
     while (Serial.available() == 0);
 
-    String answer = Serial.readStringUntil('\n');
+    String answer = readStringUntilNewLine();
     partitionSize = answer.toInt();
     Serial.println(partitionSize);
     if (!partitionSize)
@@ -106,7 +114,7 @@ int readPartitionSize() {
 }
 
 void debugProcess(Process p) {
-  #if DEBUG == 1
+#if DEBUG == 1
   while (p.running());
 
   while (p.available() > 0) {
@@ -114,7 +122,7 @@ void debugProcess(Process p) {
     Serial.print(c);
   }
   Serial.flush();
-  #endif
+#endif
 }
 
 void haltIfSDAlreadyOnOverlay() {
