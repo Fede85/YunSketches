@@ -15,6 +15,7 @@
 
   created Apr 2014
   by Federico Fissore & Federico Vanzati
+  last modified Oct 2014
 
   This code is in the public domain.
 
@@ -31,7 +32,7 @@ void setup() {
   Serial.begin(115200);
   while (!Serial);
 
-  Serial.print(F("This sketch will format your micro SD card and use it as additional disk space for your Arduino Yun.\nPlease ensure you have ONLY your micro SD card plugged in: no pen drives, hard drives or whatever.\nDo you wish to proceed (yes/no)?"));
+  Serial.print(F("This sketch will format your micro SD card and use it as additional disk space and memory for your Arduino Yun.\nPlease ensure you have ONLY your micro SD card plugged in: no pen drives, hard drives or whatever.\nDo you wish to proceed (yes/no)?"));
   expectYesBeforeProceeding();
 
   Serial.println(F("\nStarting Bridge..."));
@@ -97,11 +98,15 @@ void expectYesBeforeProceeding() {
   }
 }
 
-int readPartitionSize() {
+int readPartitionSize(String partitionType, int suggested) {
   int partitionSize = 0;
   while (!partitionSize)
   {
-    Serial.print(F("Enter the size of the data partition in MB: "));
+    Serial.print(F("Enter the size of the "));
+    Serial.print(partitionType);
+    Serial.print(F(" partition in MB (if in doubt, type "));
+    Serial.print(suggested);
+    Serial.print(F("): "));
     while (Serial.available() == 0);
 
     String answer = readStringUntilNewLine();
@@ -138,7 +143,7 @@ void haltIfSDAlreadyOnOverlay() {
 
 void haltIfSDCardIsNotPresent() {
   Process ls;
-  int exitCode = ls.runShellCommand("ls /mnt/sda1");
+  int exitCode = ls.runShellCommand(F("ls /mnt/sda1"));
 
   if (exitCode != 0) {
     Serial.println(F("\nThe micro SD card is not available"));
@@ -166,7 +171,7 @@ void installSoftware() {
   Process opkg;
 
   // update the packages list
-  int exitCode = opkg.runShellCommand("opkg update");
+  int exitCode = opkg.runShellCommand(F("opkg update"));
   // if the exitCode of the process is OK the package has been installed correctly
   if (exitCode != SUCCESSFUL_EXIT_CODE) {
     Serial.println(F("err. with opkg, check internet connection"));
@@ -194,29 +199,35 @@ void partitionAndFormatSDCard() {
   Process format;
 
   //clears partition table
-  format.runShellCommand("dd if=/dev/zero of=/dev/sda bs=4096 count=10");
+  format.runShellCommand(F("dd if=/dev/zero of=/dev/sda bs=4096 count=10"));
   debugProcess(format);
 
-  // create the first partition
-  int dataPartitionSize = readPartitionSize();
+  int dataPartitionSize = readPartitionSize("data", 500);
+  int swapPartitionSize = readPartitionSize("additional memory", 256);
 
   Serial.println(F("Partitioning (this will take a while)..."));
+
+  // create the data partition
   String firstPartition = "(echo n; echo p; echo 1; echo; echo +";
   firstPartition += dataPartitionSize;
-  firstPartition += "M; echo w) | fdisk /dev/sda";
+  firstPartition += "M; echo t; echo c; echo w) | fdisk /dev/sda";
   format.runShellCommand(firstPartition);
   debugProcess(format);
 
   unmount();
 
-  // create the second partition
-  format.runShellCommand(F("(echo n; echo p; echo 2; echo; echo; echo w) | fdisk /dev/sda"));
+  // create the swap partition
+  String swapPartition = "(echo n; echo p; echo 2; echo; echo +";
+  swapPartition += swapPartitionSize;
+  swapPartition += "M; echo t; echo 2; echo 82; echo w) | fdisk /dev/sda";
+  format.runShellCommand(swapPartition);
   debugProcess(format);
 
   unmount();
 
-  // specify first partition is FAT32
-  format.runShellCommand(F("(echo t; echo 1; echo c; echo w) | fdisk /dev/sda"));
+  // create the linux partition
+  format.runShellCommand(F("(echo n; echo p; echo 3; echo; echo; echo w) | fdisk /dev/sda"));
+  debugProcess(format);
 
   unmount();
 
@@ -224,7 +235,7 @@ void partitionAndFormatSDCard() {
 
   unmount();
 
-  // format the first partition to FAT32
+  // format the data partition to FAT32
   int exitCode = format.runShellCommand(F("mkfs.vfat /dev/sda1"));
   debugProcess(format);
   if (exitCode != SUCCESSFUL_EXIT_CODE) {
@@ -233,8 +244,17 @@ void partitionAndFormatSDCard() {
   }
   delay(100);
 
-  // format the second partition to Linux EXT4
-  exitCode = format.runShellCommand(F("mkfs.ext4 /dev/sda2"));
+  // format the swap partition
+  exitCode = format.runShellCommand(F("mkswap /dev/sda2"));
+  debugProcess(format);
+  if (exitCode != SUCCESSFUL_EXIT_CODE) {
+    Serial.println(F("\nerr. making swap"));
+    halt();
+  }
+  delay(100);
+
+  // format the linux partition to Linux EXT4
+  exitCode = format.runShellCommand(F("mkfs.ext4 /dev/sda3"));
   debugProcess(format);
   if (exitCode != SUCCESSFUL_EXIT_CODE) {
     Serial.println(F("\nerr. formatting to EXT4"));
@@ -259,9 +279,11 @@ void copySystemFilesFromYunToSD() {
   Serial.print(F("\nCopying files from Arduino Yun flash to micro SD card..."));
   Process copy;
 
-  copy.runShellCommand(F("mkdir -p /mnt/sda2"));
-  copy.runShellCommand(F("mount /dev/sda2 /mnt/sda2"));
-  copy.runShellCommand(F("rsync -a --exclude=/mnt/ --exclude=/www/sd /overlay/ /mnt/sda2/"));
+  copy.runShellCommand(F("mkdir -p /mnt/sda3"));
+  copy.runShellCommand(F("mount /dev/sda3 /mnt/sda3"));
+  copy.runShellCommand(F("rsync -a --exclude=/mnt/ --exclude=/www/sd /overlay/ /mnt/sda3/"));
+  copy.runShellCommand(F("uci -c /mnt/sda3/etc/config/ set fstab.autoswap.anon_swap=1"));
+  copy.runShellCommand(F("uci -c /mnt/sda3/etc/config/ commit"));
 
   unmount();
 }
@@ -281,7 +303,7 @@ void enableExtRoot() {
 
   fstab.runShellCommand(F("uci add fstab mount"));
   fstab.runShellCommand(F("uci set fstab.@mount[0].target=/overlay"));
-  fstab.runShellCommand(F("uci set fstab.@mount[0].device=/dev/sda2"));
+  fstab.runShellCommand(F("uci set fstab.@mount[0].device=/dev/sda3"));
   fstab.runShellCommand(F("uci set fstab.@mount[0].fstype=ext4"));
   fstab.runShellCommand(F("uci set fstab.@mount[0].enabled=1"));
   fstab.runShellCommand(F("uci set fstab.@mount[0].enabled_fsck=0"));
